@@ -26,16 +26,28 @@ unsigned char buffer[2][BUFFER_SIZE][2];
 int buffer_location = 0;
 bool bufferReading = 0; //using this to switch between column 0 and 1 - the first column
 bool threadReady = false; //using this to finish writing the first column at the start of the song, before the column is played
-
+long lastInterruptTime = 0; //used for buttons bounce
 
 // Configure your interrupts here.
+
 // Don't forget to use debouncing.
 void play_pause_isr(void){
     //Write your logis here
+    long interruptTime = millis();
+    
+    if (interruptTime - lastInterruptTime > 200)
+        playing = !(playing);
+    lastInterruptTime = interruptTime;
 }
 
 void stop_isr(void){
     // Write your logic here
+    long interruptTime = millis();
+    
+    if (interruptTime - lastInterruptTime > 200){
+        stopped = true;
+    }
+    lastInterruptTime = interruptTime;
 }
 
 /*
@@ -45,8 +57,15 @@ int setup_gpio(void){
     //Set up wiring Pi
     wiringPiSetup();
     //setting up the buttons
+    pinMode(PLAY_BUTTON, INPUT);
+    pinMode(STOP_BUTTON, INPUT);
+    pullUpDnControl(PLAY_BUTTON, PUD_UP);
+    pullUpDnControl(STOP_BUTTON, PUD_UP);
+    wiringPiISR(4, INT_EDGE_FALLING, play_pause_isr);
+    wiringPiISR(5, INT_EDGE_FALLING, stop_isr);
 	//TODO
     //setting up the SPI interface
+    wiringPiSPISetup(SPI_CHAN,SPI_SPEED);
     //TODO
     return 0;
 }
@@ -68,9 +87,13 @@ void *playThread(void *threadargs){
     while(!stopped){
         //Code to suspend playing if paused
 		//TODO
+        while (!playing){
+                continue;
+        }
         
         //Write the buffer out to SPI
         //TODO
+        wiringPiSPIDataRW(SPI_CHAN, buffer[bufferReading][buffer_location], 2);
 		
         //Do some maths to check if you need to toggle buffers
         buffer_location++;
@@ -82,6 +105,8 @@ void *playThread(void *threadargs){
     
     pthread_exit(NULL);
 }
+
+/* cleanup the gpio pins by setting them all back to input with a LOW value*/
 
 int main(){
     // Call the setup GPIO function
@@ -141,9 +166,11 @@ int main(){
             continue;
         }
         //Set config bits for first 8 bit packet and OR with upper bits
-        buffer[bufferWriting][counter][0] = ; //TODO
+        //buffer[bufferWriting][counter][0] = 0b01110000 | (ch >> 6); //TODO
+        buffer[bufferWriting][counter][0] = 0b01110000;
+        buffer[bufferWriting][counter][0]|=(ch >> 6);
         //Set next 8 bit packet
-        buffer[bufferWriting][counter][1] = ; //TODO
+        buffer[bufferWriting][counter][1] = (ch << 2); //TODO
 
         counter++;
         if(counter >= BUFFER_SIZE+1){
@@ -154,7 +181,6 @@ int main(){
             counter = 0;
             bufferWriting = (bufferWriting+1)%2;
         }
-
     }
      
     // Close the file
@@ -167,4 +193,3 @@ int main(){
 	
     return 0;
 }
-
